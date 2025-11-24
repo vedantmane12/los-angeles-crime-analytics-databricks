@@ -26,6 +26,11 @@ from pyspark.sql.types import *
 
 # COMMAND ----------
 
+spark.sql("USE CATALOG `workspace`")
+spark.sql("USE SCHEMA `la_crime_schema`")
+
+# COMMAND ----------
+
 # Environment Setup
 catalog = "workspace"
 schema = "la_crime_schema"
