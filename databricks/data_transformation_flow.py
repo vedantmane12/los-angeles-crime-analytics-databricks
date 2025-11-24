@@ -46,10 +46,6 @@ volume = "datastore"
 pl.create_streaming_table(
     name="lacrime_incidents_silver",
     comment="Silver layer: Cleaned and enriched LA crime data with derived fields and quality checks",
-    # table_properties={
-    #     "quality": "silver",
-    #     "pipelines.autoOptimize.managed": "true"
-    # },
     expect_all_or_drop={
         # Expectation 1: Primary key must not be null
         "valid_primary_key": "dr_no IS NOT NULL",        
