@@ -44,6 +44,467 @@ volume = "datastore"
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ### Load DIM_DATE
+
+# COMMAND ----------
+
+@dlt.table(
+    name="dim_date",
+    comment="Gold layer - Complete date dimension (2019-2029) with calendar attributes"
+)
+def dim_date():
+    # Generate date range from 2018-01-01 to 2028-12-31
+    start_date = "2019-01-01"
+    end_date = "2029-12-31"
+    
+    # Create DataFrame with sequence of dates
+    date_df = spark.sql(f"""
+        SELECT explode(sequence(to_date('{start_date}'), to_date('{end_date}'), interval 1 day)) as full_date
+    """)
+    
+    # Add all date attributes
+    return (
+        date_df
+        # Create date_key as YYYYMMDD integer (Primary Key)
+        .withColumn("date_key", 
+            concat(
+                lpad(year(col("full_date")), 4, "0"),
+                lpad(month(col("full_date")), 2, "0"),
+                lpad(dayofmonth(col("full_date")), 2, "0")
+            ).cast("int"))
+        
+        # Year attributes
+        .withColumn("year", year(col("full_date")))
+        .withColumn("year_name", date_format(col("full_date"), "yyyy"))
+        
+        # Quarter attributes
+        .withColumn("quarter", quarter(col("full_date")))
+        .withColumn("quarter_name", 
+            concat(lit("Q"), quarter(col("full_date"))))
+        .withColumn("year_quarter", 
+            concat(year(col("full_date")), lit("-Q"), quarter(col("full_date"))))
+        
+        # Month attributes
+        .withColumn("month", month(col("full_date")))
+        .withColumn("month_name", date_format(col("full_date"), "MMMM"))
+        .withColumn("month_name_short", date_format(col("full_date"), "MMM"))
+        .withColumn("year_month", date_format(col("full_date"), "yyyy-MM"))
+        
+        # Day attributes
+        .withColumn("day", dayofmonth(col("full_date")))
+        .withColumn("day_of_week", dayofweek(col("full_date")))
+        .withColumn("day_of_week_name", date_format(col("full_date"), "EEEE"))
+        .withColumn("day_of_week_short", date_format(col("full_date"), "EEE"))
+        
+        # Week attributes
+        .withColumn("week_of_year", weekofyear(col("full_date")))
+        .withColumn("week_of_month", 
+            ceil(dayofmonth(col("full_date")) / 7).cast("int"))
+        
+        # Boolean flags
+        .withColumn("is_weekend", 
+            when(dayofweek(col("full_date")).isin([1, 7]), True).otherwise(False))
+        .withColumn("is_weekday", 
+            when(dayofweek(col("full_date")).isin([2, 3, 4, 5, 6]), True).otherwise(False))
+        
+        # Fiscal year (assuming fiscal year starts in October)
+        .withColumn("fiscal_year",
+            when(month(col("full_date")) >= 10, year(col("full_date")) + 1)
+            .otherwise(year(col("full_date"))))
+        .withColumn("fiscal_quarter",
+            when(month(col("full_date")).isin([10, 11, 12]), 1)
+            .when(month(col("full_date")).isin([1, 2, 3]), 2)
+            .when(month(col("full_date")).isin([4, 5, 6]), 3)
+            .otherwise(4))
+        
+        # Select final columns in order
+        .select(
+            "date_key",
+            "full_date",
+            "year",
+            "year_name",
+            "quarter",
+            "quarter_name",
+            "year_quarter",
+            "month",
+            "month_name",
+            "month_name_short",
+            "year_month",
+            "day",
+            "day_of_week",
+            "day_of_week_name",
+            "day_of_week_short",
+            "week_of_year",
+            "week_of_month",
+            "is_weekend",
+            "is_weekday",
+            "fiscal_year",
+            "fiscal_quarter"
+        )
+        .orderBy("date_key")
+    )
+
+# COMMAND ----------
+
+# pl.create_streaming_table(
+#     name="dim_date",
+#     comment="Gold layer - Complete date dimension (2019-2029) with all calendar attributes"
+# )
+
+# @pl.append_flow(
+#     target="dim_date",
+#     name="dim_date_flow",
+#     comment="Generates complete date dimension with all dates from 2019-2029"
+# )
+# def dim_date_flow():
+#     """
+#     Creates complete date dimension with ALL dates from 2019-2029.
+#     Pre-populated with ~4,018 dates (11 years).
+#     Independent of Silver layer data.
+#     """
+    
+#     # Generate complete date range from 2019-01-01 to 2029-12-31
+#     start_date = "2019-01-01"
+#     end_date = "2029-12-31"
+    
+#     # Create DataFrame with sequence of ALL dates in range
+#     date_df = spark.sql(f"""
+#         SELECT explode(sequence(to_date('{start_date}'), to_date('{end_date}'), interval 1 day)) as full_date
+#     """)
+    
+#     # Convert to streaming (wrap batch DF in readStream)
+#     date_stream = spark.readStream.table(
+#         spark.createDataFrame(date_df.collect()).createOrReplaceTempView("temp_dates") or "temp_dates"
+#     )
+    
+#     # Actually, simpler approach - just use the batch DF directly
+#     # DLT streaming tables can accept batch DataFrames
+#     dim = (
+#         date_df
+#         # Create date_key as YYYYMMDD integer (Primary Key)
+#         .withColumn("date_key", 
+#             concat(
+#                 lpad(year(col("full_date")), 4, "0"),
+#                 lpad(month(col("full_date")), 2, "0"),
+#                 lpad(dayofmonth(col("full_date")), 2, "0")
+#             ).cast("int"))
+        
+#         # Year attributes
+#         .withColumn("year", year(col("full_date")))
+#         .withColumn("year_name", date_format(col("full_date"), "yyyy"))
+        
+#         # Quarter attributes
+#         .withColumn("quarter", quarter(col("full_date")))
+#         .withColumn("quarter_name", 
+#             concat(lit("Q"), quarter(col("full_date"))))
+#         .withColumn("year_quarter", 
+#             concat(year(col("full_date")), lit("-Q"), quarter(col("full_date"))))
+        
+#         # Month attributes
+#         .withColumn("month", month(col("full_date")))
+#         .withColumn("month_name", date_format(col("full_date"), "MMMM"))
+#         .withColumn("month_name_short", date_format(col("full_date"), "MMM"))
+#         .withColumn("year_month", date_format(col("full_date"), "yyyy-MM"))
+        
+#         # Day attributes
+#         .withColumn("day", dayofmonth(col("full_date")))
+#         .withColumn("day_of_week", dayofweek(col("full_date")))
+#         .withColumn("day_of_week_name", date_format(col("full_date"), "EEEE"))
+#         .withColumn("day_of_week_short", date_format(col("full_date"), "EEE"))
+        
+#         # Week attributes
+#         .withColumn("week_of_year", weekofyear(col("full_date")))
+#         .withColumn("week_of_month", 
+#             ceil(dayofmonth(col("full_date")) / 7).cast("int"))
+        
+#         # Boolean flags
+#         .withColumn("is_weekend", 
+#             when(dayofweek(col("full_date")).isin([1, 7]), True).otherwise(False))
+#         .withColumn("is_weekday", 
+#             when(dayofweek(col("full_date")).isin([2, 3, 4, 5, 6]), True).otherwise(False))
+        
+#         # Fiscal year (July 1 start for government)
+#         .withColumn("fiscal_year",
+#             when(month(col("full_date")) >= 7, year(col("full_date")) + 1)
+#             .otherwise(year(col("full_date"))))
+#         .withColumn("fiscal_quarter",
+#             when(month(col("full_date")).isin([7, 8, 9]), 1)
+#             .when(month(col("full_date")).isin([10, 11, 12]), 2)
+#             .when(month(col("full_date")).isin([1, 2, 3]), 3)
+#             .otherwise(4))
+        
+#         # Audit columns
+#         .withColumn("created_by", lit("dim_date_flow"))
+#         .withColumn("created_date", current_timestamp())
+#     )
+    
+#     # Select final columns
+#     return dim.select(
+#         "date_key",
+#         "full_date",
+#         "year",
+#         "year_name",
+#         "quarter",
+#         "quarter_name",
+#         "year_quarter",
+#         "month",
+#         "month_name",
+#         "month_name_short",
+#         "year_month",
+#         "day",
+#         "day_of_week",
+#         "day_of_week_name",
+#         "day_of_week_short",
+#         "week_of_year",
+#         "week_of_month",
+#         "is_weekend",
+#         "is_weekday",
+#         "fiscal_year",
+#         "fiscal_quarter",
+#         "created_by",
+#         "created_date"
+#     )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Load DIM_TIME
+
+# COMMAND ----------
+
+@dlt.table(
+    name="dim_time",
+    comment="Gold layer - Complete time dimension with all possible times (0000-2359) - pre-populated"
+)
+def dim_time():
+    """
+    Create comprehensive time dimension with ALL possible times.
+    Independent of crime data - contains ALL valid times (0000-2359).
+    
+    Returns 1,440 rows (24 hours * 60 minutes)
+    """
+    
+    # Generate all possible times (0-1439 minutes in a day)
+    time_df = spark.sql("""
+        SELECT explode(sequence(0, 1439, 1)) as minutes_since_midnight
+    """)
+    
+    # Calculate hour and minute from minutes_since_midnight
+    return (
+        time_df
+        .withColumn("hour", (col("minutes_since_midnight") / 60).cast("int"))
+        .withColumn("minute", (col("minutes_since_midnight") % 60).cast("int"))
+        
+        # Create time_occ in HHMM format (matches source data)
+        .withColumn("time_occ", (col("hour") * 100 + col("minute")).cast("int"))
+        
+        # Use time_occ as the primary key
+        .withColumn("time_key", col("time_occ"))
+        
+        # Create formatted time strings
+        .withColumn("time_24hr", 
+            concat(
+                lpad(col("hour"), 2, "0"),
+                lit(":"),
+                lpad(col("minute"), 2, "0")
+            ))
+        
+        # 12-hour format with AM/PM
+        .withColumn("hour_12", 
+            when(col("hour") == 0, 12)
+            .when(col("hour") > 12, col("hour") - 12)
+            .otherwise(col("hour")))
+        .withColumn("am_pm",
+            when(col("hour") < 12, "AM").otherwise("PM"))
+        .withColumn("time_12hr",
+            concat(
+                col("hour_12").cast("string"),
+                lit(":"),
+                lpad(col("minute"), 2, "0"),
+                lit(" "),
+                col("am_pm")
+            ))
+        
+        # Time period (Night/Morning/Afternoon/Evening)
+        .withColumn("time_period",
+            when((col("hour") >= 0) & (col("hour") < 6), "Night")
+            .when((col("hour") >= 6) & (col("hour") < 12), "Morning")
+            .when((col("hour") >= 12) & (col("hour") < 18), "Afternoon")
+            .otherwise("Evening"))
+        
+        # Detailed time period (hourly breakdown)
+        .withColumn("time_period_detail",
+            when(col("hour") == 0, "Midnight (12-1AM)")
+            .when((col("hour") >= 1) & (col("hour") < 6), "Early Morning (1-6AM)")
+            .when((col("hour") >= 6) & (col("hour") < 9), "Morning Rush (6-9AM)")
+            .when((col("hour") >= 9) & (col("hour") < 12), "Late Morning (9-12PM)")
+            .when(col("hour") == 12, "Noon (12-1PM)")
+            .when((col("hour") >= 13) & (col("hour") < 17), "Afternoon (1-5PM)")
+            .when((col("hour") >= 17) & (col("hour") < 20), "Evening Rush (5-8PM)")
+            .when((col("hour") >= 20) & (col("hour") < 24), "Late Evening (8-12AM)")
+            .otherwise("Unknown"))
+        
+        # Hour of day categorization
+        .withColumn("hour_of_day_category",
+            when(col("hour").isin([6, 7, 8]), "Morning Peak")
+            .when(col("hour").isin([17, 18, 19]), "Evening Peak")
+            .when((col("hour") >= 9) & (col("hour") <= 16), "Business Hours")
+            .when((col("hour") >= 20) | (col("hour") <= 5), "Off Hours")
+            .otherwise("Other"))
+        
+        # Business day flags
+        .withColumn("is_business_hours", 
+            when((col("hour") >= 9) & (col("hour") <= 17), True).otherwise(False))
+        .withColumn("is_peak_hours",
+            when(col("hour").isin([6, 7, 8, 17, 18, 19]), True).otherwise(False))
+        
+        # Audit columns
+        .withColumn("created_by", lit("dim_time"))
+        .withColumn("created_date", current_timestamp())
+        
+        # Select final columns in order
+        .select(
+            "time_key",
+            "time_occ",
+            "hour",
+            "minute",
+            "minutes_since_midnight",
+            "time_24hr",
+            "time_12hr",
+            "hour_12",
+            "am_pm",
+            "time_period",
+            "time_period_detail",
+            "hour_of_day_category",
+            "is_business_hours",
+            "is_peak_hours",
+            "created_by",
+            "created_date"
+        )
+        .orderBy("time_key")
+    )
+
+# COMMAND ----------
+
+# pl.create_streaming_table(
+#     name="dim_time",
+#     comment="Gold layer - Complete time dimension with all possible times (0000-2359)"
+# )
+
+# @pl.append_flow(
+#     target="dim_time",
+#     name="dim_time_flow",
+#     comment="Generates complete time dimension with all 1,440 possible times"
+# )
+# def dim_time_flow():
+#     """
+#     Creates complete time dimension with ALL possible times (0000-2359).
+#     Pre-populated with 1,440 times (24 hours × 60 minutes).
+#     Independent of Silver layer data.
+#     """
+    
+#     # Generate all possible times (0-1439 minutes in a day)
+#     time_df = spark.sql("""
+#         SELECT explode(sequence(0, 1439, 1)) as minutes_since_midnight
+#     """)
+    
+#     # Calculate hour and minute from minutes_since_midnight
+#     dim = (
+#         time_df
+#         .withColumn("hour", (col("minutes_since_midnight") / 60).cast("int"))
+#         .withColumn("minute", (col("minutes_since_midnight") % 60).cast("int"))
+        
+#         # Create time_occ in HHMM format (matches source data)
+#         .withColumn("time_occ", (col("hour") * 100 + col("minute")).cast("int"))
+        
+#         # Use time_occ as the primary key
+#         .withColumn("time_key", col("time_occ"))
+        
+#         # Create formatted time strings
+#         .withColumn("time_24hr", 
+#             concat(
+#                 lpad(col("hour"), 2, "0"),
+#                 lit(":"),
+#                 lpad(col("minute"), 2, "0")
+#             ))
+        
+#         # 12-hour format with AM/PM
+#         .withColumn("hour_12", 
+#             when(col("hour") == 0, 12)
+#             .when(col("hour") > 12, col("hour") - 12)
+#             .otherwise(col("hour")))
+#         .withColumn("am_pm",
+#             when(col("hour") < 12, "AM").otherwise("PM"))
+#         .withColumn("time_12hr",
+#             concat(
+#                 col("hour_12").cast("string"),
+#                 lit(":"),
+#                 lpad(col("minute"), 2, "0"),
+#                 lit(" "),
+#                 col("am_pm")
+#             ))
+        
+#         # Time period (Night/Morning/Afternoon/Evening)
+#         .withColumn("time_period",
+#             when((col("hour") >= 0) & (col("hour") < 6), "Night")
+#             .when((col("hour") >= 6) & (col("hour") < 12), "Morning")
+#             .when((col("hour") >= 12) & (col("hour") < 18), "Afternoon")
+#             .otherwise("Evening"))
+        
+#         # Detailed time period
+#         .withColumn("time_period_detail",
+#             when(col("hour") == 0, "Midnight (12-1AM)")
+#             .when((col("hour") >= 1) & (col("hour") < 6), "Early Morning (1-6AM)")
+#             .when((col("hour") >= 6) & (col("hour") < 9), "Morning Rush (6-9AM)")
+#             .when((col("hour") >= 9) & (col("hour") < 12), "Late Morning (9-12PM)")
+#             .when(col("hour") == 12, "Noon (12-1PM)")
+#             .when((col("hour") >= 13) & (col("hour") < 17), "Afternoon (1-5PM)")
+#             .when((col("hour") >= 17) & (col("hour") < 20), "Evening Rush (5-8PM)")
+#             .when((col("hour") >= 20) & (col("hour") < 24), "Late Evening (8-12AM)")
+#             .otherwise("Unknown"))
+        
+#         # Hour of day categorization
+#         .withColumn("hour_of_day_category",
+#             when(col("hour").isin([6, 7, 8]), "Morning Peak")
+#             .when(col("hour").isin([17, 18, 19]), "Evening Peak")
+#             .when((col("hour") >= 9) & (col("hour") <= 16), "Business Hours")
+#             .when((col("hour") >= 20) | (col("hour") <= 5), "Off Hours")
+#             .otherwise("Other"))
+        
+#         # Business hours flags
+#         .withColumn("is_business_hours", 
+#             when((col("hour") >= 9) & (col("hour") <= 17), True).otherwise(False))
+#         .withColumn("is_peak_hours",
+#             when(col("hour").isin([6, 7, 8, 17, 18, 19]), True).otherwise(False))
+        
+#         # Audit columns
+#         .withColumn("created_by", lit("dim_time_flow"))
+#         .withColumn("created_date", current_timestamp())
+#     )
+    
+#     # Select final columns in order
+#     return dim.select(
+#         "time_key",
+#         "time_occ",
+#         "hour",
+#         "minute",
+#         "minutes_since_midnight",
+#         "time_24hr",
+#         "time_12hr",
+#         "hour_12",
+#         "am_pm",
+#         "time_period",
+#         "time_period_detail",
+#         "hour_of_day_category",
+#         "is_business_hours",
+#         "is_peak_hours",
+#         "created_by",
+#         "created_date"
+#     )
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ### Load DIM_STATUS
 
 # COMMAND ----------
