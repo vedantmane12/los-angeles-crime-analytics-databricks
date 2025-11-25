@@ -1,8 +1,6 @@
 # Los Angeles Crime Analytics Project
 ## Data Engineering Project using Databricks and Tableau
 
-# 🚓 LA Crime Analytics - End-to-End Data Pipeline
-
 [![Databricks](https://img.shields.io/badge/Databricks-FF3621?style=flat&logo=databricks&logoColor=white)](https://databricks.com/)
 [![Delta Lake](https://img.shields.io/badge/Delta%20Lake-00ADD4?style=flat&logo=delta&logoColor=white)](https://delta.io/)
 [![Tableau](https://img.shields.io/badge/Tableau-E97627?style=flat&logo=tableau&logoColor=white)](https://www.tableau.com/)
